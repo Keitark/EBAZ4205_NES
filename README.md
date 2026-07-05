@@ -3,8 +3,14 @@
 This project is a port of the [tarunes](https://github.com/tomorrow56/tarunes) NES hardware implementation to the EBAZ4205 Zynq-7000 development board.
 
 ## Features
-- **Video:** HDMI 480p output via TMDS adapter board
-- **Audio:** I2S output (mapped to GPIO pins)
+- **Video:** HDMI 480p output via TMDS adapter board **and** NTSC composite video (simultaneously)
+- **NTSC composite:** 3-bit resistor DAC on the user GPIO header, authentic 2C02-style
+  square-wave chroma generated at exactly 12x the 3.579545 MHz colorburst
+  (42.954545 MHz, derived by an MMCM+PLL cascade), 262-line / 60.10 Hz progressive
+  like a real NES
+- **Audio:** PWM output (105.5 kHz carrier) through an external RC low-pass filter
+  (the I2S encoder still runs inside the core as the sample-rate pacer; its pins
+  were reassigned to the composite DAC)
 - **Input:** 5 push buttons on the adapter board mapped to A, B, SELECT, START
 - **ROM Loading:** Zynq PS loads `.nes` ROMs from the microSD card into PL BRAM
 
@@ -60,10 +66,29 @@ This project is a port of the [tarunes](https://github.com/tomorrow56/tarunes) N
   - BTN[2] (U20) -> SELECT
   - BTN[3] (U19) -> START
   - BTN[4] (V20) -> Unused
-- **I2S Audio:**
-  - BCLK -> N17
-  - LRCK -> R19
-  - DOUT -> P20
+- **NTSC Composite / PWM Audio (user GPIO header):**
+  - COMP_DAC[0] (LSB) -> GPIO0 / T20 -> 910 ohm -> RCA video center
+  - COMP_DAC[1]       -> GPIO1 / R18 -> 470 ohm -> RCA video center
+  - COMP_DAC[2] (MSB) -> GPIO2 / N17 -> 220 ohm -> RCA video center
+  - AUDIO_PWM         -> GPIO3 / R19 -> 1k + 100nF LPF -> 10uF -> RCA audio center
+  - (GPIO4 / P20 spare)
+
+## NTSC Composite Output Notes
+- The encoder (`rtl/ntsc_encoder.v`) scans a 256x240 6-bit palette-index
+  framebuffer out of a dual-clock BRAM at 42.954545 MHz (12 samples per
+  subcarrier cycle, 8 samples per NES pixel, 341 x 262 timing = 60.10 Hz).
+  Chroma uses the NESdev `((hue + phase) % 12) < 6` square-wave scheme, so
+  colors are generated exactly the way a real 2C02 does it.
+- The 3-bit DAC level map assumes roughly binary-weighted resistors into the
+  75 ohm TV termination (about 1.2 V full scale with 220/470/910 ohms):
+  sync=0, burst low=1, blank/black=2, burst high=3, luma low={1,2,4,6},
+  luma high={4,5,7,7}.
+- HDMI remains the frame-pacing master (59.94 Hz) while the composite output
+  free-runs at 60.10 Hz, so a slowly moving tear line may occasionally be
+  visible on the composite output. HDMI is unaffected.
+- Audio tip: the 100 nF filter capacitor gives a ~1.6 kHz cutoff, which will
+  sound muffled; 10 nF (~16 kHz cutoff) suppresses the 105.5 kHz PWM carrier
+  just as well while keeping the treble.
 
 ## Acknowledgements
 - [tarunes](https://github.com/tomorrow56/tarunes) by tomorrow56

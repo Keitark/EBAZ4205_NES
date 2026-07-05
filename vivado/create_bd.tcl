@@ -95,6 +95,12 @@ set_property -dict [list \
     CONFIG.PCW_GPIO_EMIO_GPIO_IO {4} \
 ] $ps7
 
+# Make the PS DDR and fixed IO (MIO, clock, resets) external so the
+# generated wrapper exposes them (required for a bootable bitstream).
+apply_bd_automation -rule xilinx.com:bd_rule:processing_system7 \
+    -config {make_external "FIXED_IO, DDR" apply_board_preset "0" Master "Disable" Slave "Disable"} \
+    $ps7
+
 ################################################################
 # Processor System Reset
 ################################################################
@@ -214,10 +220,26 @@ connect_bd_net [get_bd_ports bram_chr_dout] [get_bd_pins $bram_ctrl_chr/bram_rdd
 # GPIO EMIO for NES control
 # GPIO[0]: nes_rst_n (output from PS, active-low)
 # GPIO[1]: nes_ready (input to PS)
-# EMIO GPIO is 4-bit: [3:0]
-# PS drives GPIO_O[0] as nes_rst_n, reads GPIO_I[1] as nes_ready
-connect_bd_net [get_bd_pins $ps7/GPIO_O] [get_bd_ports nes_rst_n]
-connect_bd_net [get_bd_ports nes_ready]  [get_bd_pins $ps7/GPIO_I]
+# EMIO GPIO is 4-bit [3:0]; slice/concat to match the 1-bit external ports.
+set slice_rst [create_bd_cell -type ip -vlnv xilinx.com:ip:xlslice:1.0 xlslice_nes_rst]
+set_property -dict [list \
+    CONFIG.DIN_WIDTH {4} \
+    CONFIG.DIN_FROM {0} \
+    CONFIG.DIN_TO {0} \
+] $slice_rst
+connect_bd_net [get_bd_pins $ps7/GPIO_O]        [get_bd_pins $slice_rst/Din]
+connect_bd_net [get_bd_pins $slice_rst/Dout]    [get_bd_ports nes_rst_n]
+
+set const_zero [create_bd_cell -type ip -vlnv xilinx.com:ip:xlconstant:1.1 xlconstant_zero]
+set_property -dict [list CONFIG.CONST_WIDTH {1} CONFIG.CONST_VAL {0}] $const_zero
+
+set concat_gpio [create_bd_cell -type ip -vlnv xilinx.com:ip:xlconcat:2.1 xlconcat_gpio_i]
+set_property -dict [list CONFIG.NUM_PORTS {4}] $concat_gpio
+connect_bd_net [get_bd_pins $const_zero/dout]   [get_bd_pins $concat_gpio/In0]
+connect_bd_net [get_bd_ports nes_ready]         [get_bd_pins $concat_gpio/In1]
+connect_bd_net [get_bd_pins $const_zero/dout]   [get_bd_pins $concat_gpio/In2]
+connect_bd_net [get_bd_pins $const_zero/dout]   [get_bd_pins $concat_gpio/In3]
+connect_bd_net [get_bd_pins $concat_gpio/dout]  [get_bd_pins $ps7/GPIO_I]
 
 ################################################################
 # Address assignment
@@ -236,10 +258,10 @@ set_property range 8K [get_bd_addr_segs {processing_system7_0/Data/SEG_axi_bram_
 validate_bd_design
 save_bd_design
 
-# Generate wrapper
+# Generate wrapper (instantiated by rtl/system_top.v, which is the real top)
 make_wrapper -files [get_files zynq_ps_bd.bd] -top
 add_files -norecurse [glob $origin_dir/vivado/$project_name.srcs/sources_1/bd/zynq_ps_bd/hdl/zynq_ps_bd_wrapper.v]
-set_property top zynq_ps_bd_wrapper [get_filesets sources_1]
+set_property top system_top [get_filesets sources_1]
 
 puts "Block Design created successfully."
 puts ""

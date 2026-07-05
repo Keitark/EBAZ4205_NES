@@ -56,16 +56,29 @@ set_property PACKAGE_PIN V20 [get_ports {BTN[4]}]
 set_property IOSTANDARD LVCMOS33 [get_ports {BTN[4]}]
 
 #===============================================================================
-# I2S Audio Output (Mapped to free GPIO pins)
+# NTSC Composite Video (3-bit resistor DAC) + PWM Audio
+# User GPIO header on the adapter board. GPIO index -> package pin mapping
+# assumed: GPIO0=T20, GPIO1=R18, GPIO2=N17, GPIO3=R19 (GPIO4=P20 spare).
+# Verify against your adapter board wiring and adjust if needed.
+#
+# External circuit:
+#   GPIO0 (COMP_DAC[0], LSB) -- 910 ohm --+
+#   GPIO1 (COMP_DAC[1])      -- 470 ohm --+-- RCA video center
+#   GPIO2 (COMP_DAC[2], MSB) -- 220 ohm --+
+#   GPIO3 (AUDIO_PWM) -- 1k + 100nF LPF -- 10uF -- RCA audio center
 #===============================================================================
-set_property PACKAGE_PIN N17 [get_ports I2S_BCLK]
-set_property IOSTANDARD LVCMOS33 [get_ports I2S_BCLK]
+set_property PACKAGE_PIN T20 [get_ports {COMP_DAC[0]}]
+set_property PACKAGE_PIN R18 [get_ports {COMP_DAC[1]}]
+set_property PACKAGE_PIN N17 [get_ports {COMP_DAC[2]}]
+set_property IOSTANDARD LVCMOS33 [get_ports {COMP_DAC[*]}]
+# Low output impedance and fast edges keep the resistor DAC accurate
+set_property DRIVE 16 [get_ports {COMP_DAC[*]}]
+set_property SLEW FAST [get_ports {COMP_DAC[*]}]
+# Register the DAC bits in the IOB so all three switch simultaneously
+set_property IOB TRUE [get_ports {COMP_DAC[*]}]
 
-set_property PACKAGE_PIN R19 [get_ports I2S_LRCK]
-set_property IOSTANDARD LVCMOS33 [get_ports I2S_LRCK]
-
-set_property PACKAGE_PIN P20 [get_ports I2S_DOUT]
-set_property IOSTANDARD LVCMOS33 [get_ports I2S_DOUT]
+set_property PACKAGE_PIN R19 [get_ports AUDIO_PWM]
+set_property IOSTANDARD LVCMOS33 [get_ports AUDIO_PWM]
 
 #===============================================================================
 # RGB LED (Adapter board)
@@ -84,5 +97,12 @@ set_property IOSTANDARD LVCMOS33 [get_ports {LED_RGB[2]}]
 #===============================================================================
 # Asynchronous paths between PS AXI clock (100MHz) and PL pixel clock (27MHz)
 # BRAM ports are dual-port, crossing is handled by the BRAM primitive.
-set_false_path -from [get_clocks clk_fpga_0] -to [get_clocks -of_objects [get_pins mmcm_inst/CLKOUT0]]
-set_false_path -from [get_clocks -of_objects [get_pins mmcm_inst/CLKOUT0]] -to [get_clocks clk_fpga_0]
+set_false_path -from [get_clocks clk_fpga_0] -to [get_clocks -of_objects [get_pins u_pl/mmcm_inst/CLKOUT0]]
+set_false_path -from [get_clocks -of_objects [get_pins u_pl/mmcm_inst/CLKOUT0]] -to [get_clocks clk_fpga_0]
+
+# NES core clock (27MHz) and NTSC sample clock (42.954545MHz) are
+# asynchronous; the only crossing is the dual-clock framebuffer BRAM
+# inside ntsc_encoder plus the reset synchronizer.
+set_clock_groups -asynchronous \
+    -group [get_clocks -of_objects [get_pins u_pl/mmcm_inst/CLKOUT0]] \
+    -group [get_clocks -of_objects [get_pins u_pl/pll_ntsc_inst/CLKOUT0]]

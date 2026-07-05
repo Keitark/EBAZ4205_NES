@@ -35,7 +35,9 @@ set_property file_type SystemVerilog [get_files $sv_files]
 
 # EBAZ4205-specific RTL (Verilog)
 set v_files [list \
+    $origin_dir/rtl/system_top.v \
     $origin_dir/rtl/ebaz4205_nes_top.v \
+    $origin_dir/rtl/ntsc_encoder.v \
     $origin_dir/rtl/nes_button_map.v \
     $origin_dir/rtl/button_debounce.v \
     $origin_dir/rtl/bram_tdp_32kx8.v \
@@ -52,8 +54,7 @@ set vhd_files [glob -nocomplain $origin_dir/rtl/rgb2dvi/*.vhd]
 add_files -norecurse $vhd_files
 set_property file_type VHDL [get_files $vhd_files]
 
-# Set top module
-set_property top ebaz4205_nes_top [current_fileset]
+# Top module is system_top (set after the BD is created, in create_bd.tcl)
 
 ################################################################
 # Add constraints

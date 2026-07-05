@@ -13,10 +13,15 @@
 //   Note: exact 27MHz is achieved with CLKFBOUT_MULT_F=24.0, CLKOUT0_DIVIDE_F=29.630
 //         For Vivado MMCM, use Clocking Wizard IP for precise configuration.
 //
-// I2S pin assignment (GPIO pins on adapter board):
-//   I2S_BCLK -> N17 (GPIO_0_0_tri_io[2])
-//   I2S_LRCK -> R19 (GPIO_0_0_tri_io[3])
-//   I2S_DOUT -> P20 (GPIO_0_0_tri_io[4])
+// NTSC composite + PWM audio (user GPIO header on adapter board):
+//   COMP_DAC[2:0] -> 3-bit binary-weighted resistor DAC -> composite video
+//   AUDIO_PWM     -> RC low-pass filter -> audio
+//   A second MMCM + PLL cascade generates the NTSC sample clock:
+//     33.333MHz x27 = 900MHz VCO, /22 = 40.909091MHz
+//     40.909091MHz x21 = 859.091MHz VCO, /20 = 42.954545MHz
+//     = exactly 12 x 3.579545MHz NTSC colorburst
+//   (I2S output was replaced by these pins; the I2S encoder still runs
+//    inside the core as the audio sample-rate pacer.)
 //
 // AXI BRAM interface (from PS via Block Design):
 //   PS writes PRG ROM (32KB) to bram_prg_* ports before releasing nes_rst_n
@@ -36,10 +41,11 @@ module ebaz4205_nes_top (
     // Push buttons (active high, 5 buttons on adapter board)
     input  wire [4:0]  BTN,
 
-    // I2S audio output
-    output wire        I2S_BCLK,
-    output wire        I2S_LRCK,
-    output wire        I2S_DOUT,
+    // NTSC composite video: 3-bit resistor DAC (COMP_DAC[2] = MSB)
+    output wire [2:0]  COMP_DAC,
+
+    // PWM audio output (105.5 kHz carrier, external RC filter)
+    output wire        AUDIO_PWM,
 
     // RGB LED (active low)
     // LED_RGB[0]: MMCM locked indicator (green)
@@ -147,10 +153,12 @@ module ebaz4205_nes_top (
     end
     assign sys_rst_n = (rst_cnt == 4'h0);
 
-    // NES core reset: held until PS asserts nes_rst_n AND MMCM is locked
-    wire nes_core_rst;   // synchronous active-high reset for tarunes
-    assign nes_core_rst = !(sys_rst_n && nes_rst_n);
-    assign nes_ready    = !nes_core_rst;
+    // NES core reset: held until PS asserts nes_rst_n AND MMCM is locked.
+    // NOTE: tarunes uses an active-LOW synchronous reset (`if (!rst)` resets),
+    // so the core runs while nes_run == 1.
+    wire nes_run;
+    assign nes_run   = sys_rst_n && nes_rst_n;
+    assign nes_ready = nes_run;
 
     //=========================================================================
     // Button debounce (5 buttons)
@@ -245,7 +253,7 @@ module ebaz4205_nes_top (
     wire [7:0]  hdmi_r, hdmi_g, hdmi_b;
     wire        hdmi_hsync, hdmi_vsync, hdmi_de;
     wire [9:0]  hdmi_video_x, hdmi_video_y;
-    wire        i2s_bclk_w, i2s_lrck_w, i2s_dout_w;
+    wire [7:0]  audio_pcm;
     wire [8:0]  scanline, cycle_out;
     wire [5:0]  pixel_index;
 
@@ -262,7 +270,7 @@ module ebaz4205_nes_top (
         .I2S_TEST_TONE(1'b0)
     ) u_nes_core (
         .clk                     (clk_27m),
-        .rst                     (nes_core_rst),
+        .rst                     (nes_run),
         .frame_sync              (frame_sync_r),
         .controller1_btns        (nes_buttons),
         .scanline                (scanline),
@@ -277,9 +285,10 @@ module ebaz4205_nes_top (
         .hdmi_video_x            (hdmi_video_x),
         .hdmi_video_y            (hdmi_video_y),
         .audio_sample            (),
-        .i2s_bclk                (i2s_bclk_w),
-        .i2s_lrck                (i2s_lrck_w),
-        .i2s_dout                (i2s_dout_w),
+        .audio_pcm               (audio_pcm),
+        .i2s_bclk                (),
+        .i2s_lrck                (),
+        .i2s_dout                (),
         .prg_addr                (prg_addr_core),
         .prg_rdata               (prg_rdata_core),
         .chr_addr                (chr_addr_core),
@@ -320,17 +329,121 @@ module ebaz4205_nes_top (
     );
 
     //=========================================================================
-    // I2S output
+    // NTSC sample clock generation: 42.954545 MHz = 12 x colorburst (exact)
+    //   Stage 1 (MMCM): 33.333MHz x 27 = 900MHz VCO, /22 = 40.909091MHz
+    //   Stage 2 (PLL):  40.909091MHz x 21 = 859.091MHz VCO, /20 = 42.954545MHz
+    // Two stages are needed because the required ratio 567/440 cannot be
+    // reached by a single MMCM (even with fractional dividers).
     //=========================================================================
-    assign I2S_BCLK = i2s_bclk_w;
-    assign I2S_LRCK = i2s_lrck_w;
-    assign I2S_DOUT = i2s_dout_w;
+    wire clk_41m_raw, clk_41m;
+    wire clk_ntsc_raw, clk_ntsc;
+    wire mmcm_ntsc_fb;
+    wire pll_ntsc_fb;
+    wire mmcm_ntsc_locked, pll_ntsc_locked;
+
+    MMCME2_BASE #(
+        .BANDWIDTH        ("OPTIMIZED"),
+        .CLKIN1_PERIOD    (30.000),        // 33.333MHz
+        .CLKFBOUT_MULT_F  (27.000),        // VCO = 900MHz
+        .DIVCLK_DIVIDE    (1),
+        .CLKOUT0_DIVIDE_F (22.000),        // 900 / 22 = 40.909091MHz
+        .CLKFBOUT_PHASE   (0.0),
+        .CLKOUT0_PHASE    (0.0),
+        .CLKOUT0_DUTY_CYCLE(0.5),
+        .REF_JITTER1      (0.010),
+        .STARTUP_WAIT     ("FALSE")
+    ) mmcm_ntsc_inst (
+        .CLKIN1   (CLK),
+        .CLKFBIN  (mmcm_ntsc_fb),
+        .CLKFBOUT (mmcm_ntsc_fb),          // internal feedback (no phase align)
+        .CLKFBOUTB(),
+        .CLKOUT0  (clk_41m_raw),
+        .CLKOUT0B (),
+        .CLKOUT1  (),
+        .CLKOUT1B (),
+        .CLKOUT2  (),
+        .CLKOUT2B (),
+        .CLKOUT3  (),
+        .CLKOUT3B (),
+        .CLKOUT4  (),
+        .CLKOUT5  (),
+        .CLKOUT6  (),
+        .LOCKED   (mmcm_ntsc_locked),
+        .PWRDWN   (1'b0),
+        .RST      (1'b0)
+    );
+
+    BUFG bufg_41m (.I(clk_41m_raw), .O(clk_41m));
+
+    PLLE2_BASE #(
+        .BANDWIDTH      ("OPTIMIZED"),
+        .CLKIN1_PERIOD  (24.444),          // 40.909091MHz
+        .CLKFBOUT_MULT  (21),              // VCO = 859.091MHz
+        .DIVCLK_DIVIDE  (1),
+        .CLKOUT0_DIVIDE (20),              // 859.091 / 20 = 42.954545MHz
+        .CLKFBOUT_PHASE (0.0),
+        .CLKOUT0_PHASE  (0.0),
+        .CLKOUT0_DUTY_CYCLE(0.5),
+        .REF_JITTER1    (0.010),
+        .STARTUP_WAIT   ("FALSE")
+    ) pll_ntsc_inst (
+        .CLKIN1  (clk_41m),
+        .CLKFBIN (pll_ntsc_fb),
+        .CLKFBOUT(pll_ntsc_fb),            // internal feedback
+        .CLKOUT0 (clk_ntsc_raw),
+        .CLKOUT1 (),
+        .CLKOUT2 (),
+        .CLKOUT3 (),
+        .CLKOUT4 (),
+        .CLKOUT5 (),
+        .LOCKED  (pll_ntsc_locked),
+        .PWRDWN  (1'b0),
+        .RST     (~mmcm_ntsc_locked)
+    );
+
+    BUFG bufg_ntsc (.I(clk_ntsc_raw), .O(clk_ntsc));
+
+    // Reset synchronizer for the NTSC domain
+    wire ntsc_clocks_ok = mmcm_ntsc_locked & pll_ntsc_locked;
+    reg [1:0] ntsc_rst_sync;
+    always @(posedge clk_ntsc or negedge ntsc_clocks_ok) begin
+        if (!ntsc_clocks_ok)
+            ntsc_rst_sync <= 2'b00;
+        else
+            ntsc_rst_sync <= {ntsc_rst_sync[0], 1'b1};
+    end
+    wire rst_ntsc_n = ntsc_rst_sync[1];
+
+    //=========================================================================
+    // NTSC composite encoder (3-bit resistor DAC output)
+    //=========================================================================
+    ntsc_encoder u_ntsc (
+        .clk_core        (clk_27m),
+        .core_cycle      (cycle_out),
+        .core_scanline   (scanline),
+        .core_pixel_index(pixel_index),
+        .clk_ntsc        (clk_ntsc),
+        .rst_ntsc_n      (rst_ntsc_n),
+        .dac_out         (COMP_DAC)
+    );
+
+    //=========================================================================
+    // PWM audio: 8-bit PWM, 27MHz / 256 = 105.47 kHz carrier.
+    // audio_pcm is the buffered, rate-matched (~46.9 kHz) sample stream.
+    //=========================================================================
+    reg [7:0] pwm_cnt;
+    reg       pwm_out;
+    always @(posedge clk_27m) begin
+        pwm_cnt <= pwm_cnt + 8'd1;
+        pwm_out <= (audio_pcm > pwm_cnt);
+    end
+    assign AUDIO_PWM = pwm_out;
 
     //=========================================================================
     // LED status (active low)
     //=========================================================================
-    assign LED_RGB[0] = ~mmcm_locked;    // green: MMCM locked
-    assign LED_RGB[1] = ~nes_ready;      // blue:  NES running
-    assign LED_RGB[2] = 1'b1;            // off
+    assign LED_RGB[0] = ~mmcm_locked;      // green: MMCM locked
+    assign LED_RGB[1] = ~nes_ready;        // blue:  NES running
+    assign LED_RGB[2] = ~ntsc_clocks_ok;   // red:   NTSC clocks locked
 
 endmodule

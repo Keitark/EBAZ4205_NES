@@ -37,6 +37,10 @@ module nes_top_ebaz4205 #(
     output var logic [9:0]    hdmi_video_y,
     // Audio
     output var logic [7:0]    audio_sample,
+    // Buffered, rate-matched (~46.9 kHz) sample for external PWM/1-bit DACs.
+    // Unlike audio_sample (raw APU output, bursty in wall-clock time because
+    // the core renders ahead and stalls), this follows the I2S playback rate.
+    output var logic [7:0]    audio_pcm,
     output var logic          i2s_bclk,
     output var logic          i2s_lrck,
     output var logic          i2s_dout,
@@ -99,6 +103,7 @@ module nes_top_ebaz4205 #(
     logic [7:0]    controller2_btns;
 
     assign core_stall        = ppu_frame_wait;
+    assign audio_pcm         = audio_play_sample;
     assign apu_stall         = (audio_frame_samples == AUDIO_SAMPLES_PER_FRAME);
     assign audio_sample      = audio_sample_raw;
     assign controller2_btns = 8'h00;
