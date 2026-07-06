@@ -2,6 +2,10 @@
 
 This project is a port of the [tarunes](https://github.com/tomorrow56/tarunes) NES hardware implementation to the EBAZ4205 Zynq-7000 development board.
 
+> **⚠️ UNTESTED:** This fork adds NTSC composite video (3-bit resistor DAC) and
+> PWM audio output. The changes have **not been synthesized or tested on real
+> hardware yet** — use at your own risk until this notice is removed.
+
 ## Features
 - **Video:** HDMI 480p output via TMDS adapter board **and** NTSC composite video (simultaneously)
 - **NTSC composite:** 3-bit resistor DAC on the user GPIO header, authentic 2C02-style
