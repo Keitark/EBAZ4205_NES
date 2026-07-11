@@ -20,7 +20,9 @@ module nes_top_ebaz4205 #(
     input  var logic          rst,          // synchronous active-high reset
     input  var logic          frame_sync,
     // Button input (replaces SFC controller)
-    // Bit mapping: {A, B, SELECT, START, UP, DOWN, LEFT, RIGHT}
+    // Bit mapping (per tarunes_controller, bit 0 is read first on $4016):
+    //   bit0=A, bit1=B, bit2=SELECT, bit3=START,
+    //   bit4=UP, bit5=DOWN, bit6=LEFT, bit7=RIGHT
     input  var logic [7:0]    controller1_btns,
     // PPU outputs
     output var logic [8:0]    scanline,

@@ -68,10 +68,12 @@ set_property -dict [list \
     CONFIG.PCW_MIO_45_PULLUP {enabled} \
 ] $ps7
 
-# Enable UART0 for debug (MIO 14-15)
+# Enable UART0 for debug, routed via EMIO to PL pins (H16/H17 UART header
+# on the adapter board). MIO 14/15 are not routed to any header on the
+# EBAZ4205, so EMIO is the only way to reach the console.
 set_property -dict [list \
     CONFIG.PCW_UART0_PERIPHERAL_ENABLE {1} \
-    CONFIG.PCW_UART0_UART0_IO {MIO 14 .. 15} \
+    CONFIG.PCW_UART0_UART0_IO {EMIO} \
 ] $ps7
 
 # Enable USB0 (optional, for future controller support)
@@ -162,6 +164,10 @@ create_bd_port -dir I -from 31 -to 0 bram_chr_dout
 create_bd_port -dir O nes_rst_n
 create_bd_port -dir I nes_ready
 
+# UART0 console (EMIO)
+create_bd_port -dir O UART0_TX
+create_bd_port -dir I UART0_RX
+
 ################################################################
 # Connections
 ################################################################
@@ -240,6 +246,10 @@ connect_bd_net [get_bd_ports nes_ready]         [get_bd_pins $concat_gpio/In1]
 connect_bd_net [get_bd_pins $const_zero/dout]   [get_bd_pins $concat_gpio/In2]
 connect_bd_net [get_bd_pins $const_zero/dout]   [get_bd_pins $concat_gpio/In3]
 connect_bd_net [get_bd_pins $concat_gpio/dout]  [get_bd_pins $ps7/GPIO_I]
+
+# UART0 EMIO -> external ports
+connect_bd_net [get_bd_pins $ps7/UART0_TX] [get_bd_ports UART0_TX]
+connect_bd_net [get_bd_ports UART0_RX]     [get_bd_pins $ps7/UART0_RX]
 
 ################################################################
 # Address assignment

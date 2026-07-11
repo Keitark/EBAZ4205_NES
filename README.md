@@ -15,7 +15,8 @@ This project is a port of the [tarunes](https://github.com/tomorrow56/tarunes) N
 - **Audio:** PWM output (105.5 kHz carrier) through an external RC low-pass filter
   (the I2S encoder still runs inside the core as the sample-rate pacer; its pins
   were reassigned to the composite DAC)
-- **Input:** 5 push buttons on the adapter board mapped to A, B, SELECT, START
+- **Input:** SNES/SFC gamepad (full D-pad + all buttons) on 3 GPIO pins,
+  OR-merged with 3 adapter-board push buttons (A, B, START)
 - **ROM Loading:** Zynq PS loads `.nes` ROMs from the microSD card into PL BRAM
 
 ## Hardware Requirements
@@ -67,9 +68,17 @@ This project is a port of the [tarunes](https://github.com/tomorrow56/tarunes) N
 - **Buttons:**
   - BTN[0] (T19) -> A
   - BTN[1] (P19) -> B
-  - BTN[2] (U20) -> SELECT
-  - BTN[3] (U19) -> START
-  - BTN[4] (V20) -> Unused
+  - BTN[2] (U19) -> START
+- **SNES/SFC Gamepad:**
+  - SFC_LATCH -> P20
+  - SFC_CLK   -> U20 (was SELECT button - avoid pressing it with a pad attached)
+  - SFC_DATA  -> V20 (was unused BTN[4])
+  - Pad VCC -> 3.3V, Pad GND -> GND (official pads are 5V-spec but run fine
+    at 3.3V; if you must power at 5V, level-shift DATA)
+- **UART Console (PS UART0 via EMIO):**
+  - UART_TX (PS transmit) -> H17
+  - UART_RX (PS receive)  -> H16
+  - 115200 8N1; swap H16/H17 in the XDC if the console is silent
 - **NTSC Composite / PWM Audio (user GPIO header):**
   - COMP_DAC[0] (LSB) -> GPIO0 / T20 -> 910 ohm -> RCA video center
   - COMP_DAC[1]       -> GPIO1 / R18 -> 470 ohm -> RCA video center

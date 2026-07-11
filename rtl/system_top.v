@@ -42,10 +42,15 @@ module system_top (
     output wire        HDMI_CLK_N,
     output wire [2:0]  HDMI_P,
     output wire [2:0]  HDMI_N,
-    input  wire [4:0]  BTN,
+    input  wire [2:0]  BTN,
+    output wire        SFC_LATCH,    // SNES/SFC gamepad
+    output wire        SFC_CLK,
+    input  wire        SFC_DATA,
     output wire [2:0]  COMP_DAC,     // NTSC composite 3-bit resistor DAC
     output wire        AUDIO_PWM,    // PWM audio
-    output wire [2:0]  LED_RGB
+    output wire [2:0]  LED_RGB,
+    output wire        UART_TX,      // PS UART0 console via EMIO
+    input  wire        UART_RX
 );
 
     // PS <-> PL BRAM loader interface
@@ -97,7 +102,9 @@ module system_top (
         .bram_chr_din     (bram_chr_din),
         .bram_chr_dout    (bram_chr_dout),
         .nes_rst_n        (nes_rst_n),
-        .nes_ready        (nes_ready)
+        .nes_ready        (nes_ready),
+        .UART0_TX         (UART_TX),
+        .UART0_RX         (UART_RX)
     );
 
     ebaz4205_nes_top u_pl (
@@ -107,6 +114,9 @@ module system_top (
         .HDMI_P       (HDMI_P),
         .HDMI_N       (HDMI_N),
         .BTN          (BTN),
+        .SFC_LATCH    (SFC_LATCH),
+        .SFC_CLK      (SFC_CLK),
+        .SFC_DATA     (SFC_DATA),
         .COMP_DAC     (COMP_DAC),
         .AUDIO_PWM    (AUDIO_PWM),
         .LED_RGB      (LED_RGB),

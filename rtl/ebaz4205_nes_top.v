@@ -38,8 +38,14 @@ module ebaz4205_nes_top (
     output wire [2:0]  HDMI_P,
     output wire [2:0]  HDMI_N,
 
-    // Push buttons (active high, 5 buttons on adapter board)
-    input  wire [4:0]  BTN,
+    // Push buttons (active high): BTN[0]=T19 A, BTN[1]=P19 B, BTN[2]=U19 START
+    // (U20/V20 of the original 5-button set are reused for the gamepad)
+    input  wire [2:0]  BTN,
+
+    // SNES/SFC gamepad (3-wire shift register interface)
+    output wire        SFC_LATCH,
+    output wire        SFC_CLK,
+    input  wire        SFC_DATA,
 
     // NTSC composite video: 3-bit resistor DAC (COMP_DAC[2] = MSB)
     output wire [2:0]  COMP_DAC,
@@ -161,13 +167,13 @@ module ebaz4205_nes_top (
     assign nes_ready = nes_run;
 
     //=========================================================================
-    // Button debounce (5 buttons)
+    // Button debounce (3 buttons)
     //=========================================================================
-    wire [4:0] btn_debounced;
+    wire [2:0] btn_debounced;
 
     genvar gi;
     generate
-        for (gi = 0; gi < 5; gi = gi + 1) begin : gen_debounce
+        for (gi = 0; gi < 3; gi = gi + 1) begin : gen_debounce
             button_debounce #(
                 .DEBOUNCE_CYCLES(270000)   // ~10ms at 27MHz
             ) u_debounce (
@@ -180,14 +186,30 @@ module ebaz4205_nes_top (
     endgenerate
 
     //=========================================================================
-    // NES button mapping
+    // NES button mapping + SNES/SFC gamepad (OR-merged)
     //=========================================================================
     wire [7:0] nes_buttons;
+    wire [7:0] sfc_buttons;
+    wire [7:0] nes_buttons_merged;
 
     nes_button_map u_btn_map (
         .btn_debounced(btn_debounced),
         .nes_buttons  (nes_buttons)
     );
+
+    // Polls a SNES/SFC pad every ~1ms (83kHz shift clock) and outputs the
+    // NES button byte (bit0=A ... bit7=RIGHT, matching tarunes_controller).
+    // Runs from sys reset so the pad works as soon as the clocks are up.
+    tarunes_sfc_controller u_sfc_pad (
+        .clk      (clk_27m),
+        .rst      (sys_rst_n),      // tarunes reset is active-low
+        .sfc_data (SFC_DATA),
+        .sfc_latch(SFC_LATCH),
+        .sfc_clk  (SFC_CLK),
+        .buttons  (sfc_buttons)
+    );
+
+    assign nes_buttons_merged = nes_buttons | sfc_buttons;
 
     //=========================================================================
     // PRG ROM BRAM (32KB)
@@ -272,7 +294,7 @@ module ebaz4205_nes_top (
         .clk                     (clk_27m),
         .rst                     (nes_run),
         .frame_sync              (frame_sync_r),
-        .controller1_btns        (nes_buttons),
+        .controller1_btns        (nes_buttons_merged),
         .scanline                (scanline),
         .cycle                   (cycle_out),
         .pixel_index             (pixel_index),

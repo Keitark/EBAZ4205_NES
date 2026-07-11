@@ -38,7 +38,7 @@ set_property IOSTANDARD TMDS_33 [get_ports {HDMI_P[2]}]
 # set_property IOSTANDARD TMDS_33 [get_ports {HDMI_N[2]}]
 
 #===============================================================================
-# Buttons (Adapter board)
+# Buttons (Adapter board) - 3 of the 5 buttons; U20/V20 reused for gamepad
 #===============================================================================
 set_property PACKAGE_PIN T19 [get_ports {BTN[0]}]
 set_property IOSTANDARD LVCMOS33 [get_ports {BTN[0]}]
@@ -46,14 +46,32 @@ set_property IOSTANDARD LVCMOS33 [get_ports {BTN[0]}]
 set_property PACKAGE_PIN P19 [get_ports {BTN[1]}]
 set_property IOSTANDARD LVCMOS33 [get_ports {BTN[1]}]
 
-set_property PACKAGE_PIN U20 [get_ports {BTN[2]}]
+set_property PACKAGE_PIN U19 [get_ports {BTN[2]}]
 set_property IOSTANDARD LVCMOS33 [get_ports {BTN[2]}]
 
-set_property PACKAGE_PIN U19 [get_ports {BTN[3]}]
-set_property IOSTANDARD LVCMOS33 [get_ports {BTN[3]}]
+#===============================================================================
+# SNES/SFC gamepad (3-wire shift register + 3.3V + GND)
+# Pad connector: VCC=3.3V, GND, LATCH, CLK, DATA
+# NOTE: U20/V20 still have the adapter pushbuttons attached. V20 (DATA) is an
+# input, no conflict. U20 (CLK) is now an output - avoid pressing the old
+# SELECT button while a pad is connected.
+#===============================================================================
+set_property PACKAGE_PIN P20 [get_ports SFC_LATCH]
+set_property PACKAGE_PIN U20 [get_ports SFC_CLK]
+set_property PACKAGE_PIN V20 [get_ports SFC_DATA]
+set_property IOSTANDARD LVCMOS33 [get_ports {SFC_LATCH SFC_CLK SFC_DATA}]
+# Idle-high when no pad is connected (all buttons read released)
+set_property PULLUP true [get_ports SFC_DATA]
 
-set_property PACKAGE_PIN V20 [get_ports {BTN[4]}]
-set_property IOSTANDARD LVCMOS33 [get_ports {BTN[4]}]
+#===============================================================================
+# UART console (PS UART0 via EMIO, adapter board UART header)
+# UART_TX = FPGA/PS transmit -> connect to your USB-UART RX
+# If the console shows nothing, swap H16/H17 here.
+#===============================================================================
+set_property PACKAGE_PIN H17 [get_ports UART_TX]
+set_property PACKAGE_PIN H16 [get_ports UART_RX]
+set_property IOSTANDARD LVCMOS33 [get_ports {UART_TX UART_RX}]
+set_property PULLUP true [get_ports UART_RX]
 
 #===============================================================================
 # NTSC Composite Video (3-bit resistor DAC) + PWM Audio
